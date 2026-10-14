@@ -1,0 +1,19 @@
+{% if metas %}
+<div class="table-responsive mt-3">
+  <table class="table table-sm">
+    <caption>Resultados em {{ month_label }} e no ano {{ selected_year }}. Previsto ausente é identificado em texto. — indica percentual indisponível ou cálculo pendente.</caption>
+    <thead><tr><th scope="col">Indicador</th><th scope="col" class="text-end">Previsto mensal</th><th scope="col" class="text-end">Realizado mensal</th><th scope="col" class="text-end">Atingimento mensal</th><th scope="col" class="text-end">Previsto anual</th><th scope="col" class="text-end">Realizado anual</th><th scope="col" class="text-end">Atingimento anual</th></tr></thead>
+    <tbody>{% for meta in metas %}<tr>
+      <th scope="row">{{ meta.indicador.nome }} <span class="muted">({{ meta.indicador.codigo }}){% if not meta.indicador.ativo %} — inativo{% endif %}</span><span class="muted d-block">{{ meta.indicador.get_tipo_calculo_display|default:"Tipo de cálculo pendente" }}</span></th>
+      <td class="text-end">{% if meta.mensal is not None %}{{ meta.mensal|floatformat:2 }}{% else %}<span class="muted">Sem meta cadastrada</span>{% endif %}</td>
+      <td class="text-end">{% if meta.realizado is not None %}{{ meta.realizado }}{% else %}—{% endif %}</td>
+      <td class="text-end">{% if meta.atingimento is not None %}{{ meta.atingimento|floatformat:2 }}%{% else %}—{% endif %}</td>
+      <td class="text-end">{% if meta.anual is not None %}{{ meta.anual|floatformat:2 }}{% else %}<span class="muted">Sem meta cadastrada</span>{% endif %}</td>
+      <td class="text-end">{% if meta.realizado_anual is not None %}{{ meta.realizado_anual }}{% else %}—{% endif %}</td>
+      <td class="text-end">{% if meta.atingimento_anual is not None %}{{ meta.atingimento_anual|floatformat:2 }}%{% else %}—{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% else %}
+<p class="helper">Nenhum indicador cadastrado{% if not polo and not row %} ou nenhum polo selecionado{% endif %}.</p>
+{% endif %}

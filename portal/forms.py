@@ -1,5 +1,5 @@
 from django import forms
-from .models import Attendance
+from .models import Atendimento, Polo
 
 
 class MultipleFileInput(forms.ClearableFileInput):
@@ -26,15 +26,29 @@ class MediaFilesField(forms.FileField):
         return cleaned
 
 
-class AttendanceForm(forms.ModelForm):
+class AtendimentoForm(forms.ModelForm):
     media = MediaFilesField(label='Fotos ou PDF', required=False, widget=MultipleFileInput(attrs={'accept': '.jpg,.jpeg,.png,.webp,.pdf'}), help_text='Até 10 arquivos, com no máximo 10 MB cada. Fotos JPG, PNG ou WebP e documentos PDF.')
     class Meta:
-        model = Attendance
-        fields = ['unit', 'date', 'completed', 'notes']
-        labels = {'unit': 'Unidade', 'date': 'Data do atendimento', 'completed': 'Atendimentos realizados', 'notes': 'Observações'}
-        widgets = {'date': forms.DateInput(attrs={'type': 'date'}), 'notes': forms.Textarea(attrs={'rows': 4})}
+        model = Atendimento
+        fields = ['polo', 'data', 'livros_retirados', 'evento', 'observacao']
+        labels = {'polo': 'Polo', 'data': 'Data do atendimento', 'livros_retirados': 'Livros retirados', 'evento': 'Evento (opcional)', 'observacao': 'Observações'}
+        widgets = {'data': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date'}), 'observacao': forms.Textarea(attrs={'rows': 4})}
+        error_messages = {
+            'polo': {'required': 'Selecione um polo.', 'invalid_choice': 'Selecione um polo ativo válido.'},
+            'data': {'required': 'Informe a data do atendimento.', 'invalid': 'Informe uma data válida.'},
+            'livros_retirados': {
+                'required': 'Informe a quantidade de livros retirados.',
+                'invalid': 'Informe uma quantidade inteira válida.',
+                'min_value': 'A quantidade de livros retirados não pode ser negativa.',
+            },
+            'evento': {'invalid_choice': 'Selecione um evento válido.'},
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['polo'].queryset = Polo.objects.filter(ativo=True)
+        self.fields['evento'].queryset = self.fields['evento'].queryset.select_related('polo').order_by('titulo', 'pk')
+        self.fields['evento'].label_from_instance = lambda evento: f'{evento.titulo} — {evento.polo.nome}'
+        self.fields['evento'].help_text = 'Opcional. Se informado, deve pertencer ao polo selecionado.'
         for field in self.fields.values():
             field.widget.attrs['class'] = 'form-select' if isinstance(field.widget, forms.Select) else 'form-control'

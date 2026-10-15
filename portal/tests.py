@@ -144,18 +144,20 @@ class ModelagemTests(TestCase):
 
 class PortalTests(TestCase):
     def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.client.force_login(get_user_model().objects.create_superuser(username='test-access', password='test-pass'))
         self.polo = Polo.objects.create(nome='Imperatriz')
 
     def dados(self):
         return {'polo': self.polo.pk, 'data': '2026-08-18', 'livros_retirados': 4}
 
     def test_paginas_e_admin_disponiveis(self):
-        for path in ['/', '/registros/', '/atendimentos/novo/', '/admin/login/']:
+        for path in ['/', '/registros/', '/atendimentos/novo/']:
             self.assertEqual(self.client.get(path).status_code, 200)
         response = self.client.get(f'/?unit={self.polo.pk}')
         self.assertContains(response, 'Unidade de Imperatriz')
         self.assertContains(response, 'img/sesi.svg')
-        self.assertEqual(self.client.get('/admin/').status_code, 302)
+        self.assertEqual(self.client.get('/admin/').status_code, 200)
 
     def test_paginas_sem_cadastros(self):
         self.polo.delete()
@@ -167,7 +169,7 @@ class PortalTests(TestCase):
     def test_multiple_attachments_and_links(self):
         with TemporaryDirectory(dir='.') as directory, override_settings(MEDIA_ROOT=directory):
             data = self.dados()
-            data['media'] = [SimpleUploadedFile('documento.pdf', b'%PDF-1.4\nexample', content_type='application/pdf'),
+            data['media'] = [SimpleUploadedFile('foto.jpg', b'\xff\xd8\xffexample', content_type='image/jpeg'),
                              SimpleUploadedFile('foto.png', b'\x89PNG\r\n\x1a\nexample', content_type='image/png')]
             response = self.client.post('/atendimentos/novo/', data)
             self.assertEqual(response.status_code, 302)
@@ -178,7 +180,7 @@ class PortalTests(TestCase):
                 self.assertGreater(item.tamanho, 0)
                 self.assertTrue(item.tipo_mime)
             response = self.client.get('/registros/?month=2026-08')
-            self.assertContains(response, 'documento.pdf')
+            self.assertContains(response, 'foto.jpg')
             self.assertContains(response, 'foto.png')
 
     def test_invalid_attachment_prevents_save(self):
@@ -186,6 +188,35 @@ class PortalTests(TestCase):
         data['media'] = SimpleUploadedFile('fake.pdf', b'invalid')
         self.assertEqual(self.client.post('/atendimentos/novo/', data).status_code, 200)
         self.assertEqual(Atendimento.objects.count(), 0)
+
+    def test_rejeita_tres_fotos_sem_salvar_atendimento(self):
+        data = self.dados()
+        data['media'] = [SimpleUploadedFile(f'foto{i}.png', b'\x89PNG\r\n\x1a\nexample') for i in range(3)]
+        response = self.client.post('/atendimentos/novo/', data)
+        self.assertContains(response, 'Envie no máximo 2 fotos por atendimento.')
+        self.assertFalse(Atendimento.objects.exists())
+        self.assertFalse(AnexoAtendimento.objects.exists())
+
+    def test_rejeita_foto_acima_de_dois_mb(self):
+        data = self.dados()
+        data['media'] = SimpleUploadedFile('foto.png', b'\x89PNG\r\n\x1a\n' + b'x' * (2 * 1024 * 1024 - 7))
+        response = self.client.post('/atendimentos/novo/', data)
+        self.assertContains(response, 'Cada foto deve ter no máximo 2 MB.')
+        self.assertFalse(Atendimento.objects.exists())
+
+    def test_aceita_foto_com_exatamente_dois_mb(self):
+        with TemporaryDirectory(dir='.') as directory, override_settings(MEDIA_ROOT=directory):
+            data = self.dados()
+            data['media'] = SimpleUploadedFile('foto.webp', b'RIFFxxxxWEBP' + b'x' * (2 * 1024 * 1024 - 12), content_type='image/webp')
+            self.assertEqual(self.client.post('/atendimentos/novo/', data).status_code, 302)
+            self.assertEqual(AnexoAtendimento.objects.get().tamanho, 2 * 1024 * 1024)
+
+    def test_rejeita_pdf_mesmo_com_assinatura_valida(self):
+        data = self.dados()
+        data['media'] = SimpleUploadedFile('documento.pdf', b'%PDF-1.4 example', content_type='application/pdf')
+        response = self.client.post('/atendimentos/novo/', data)
+        self.assertContains(response, 'Envie somente fotos JPG, PNG ou WebP válidas.')
+        self.assertFalse(Atendimento.objects.exists())
 
     def test_formulario_rejeita_evento_de_outro_polo(self):
         outro = Polo.objects.create(nome='Outro polo')
@@ -197,6 +228,8 @@ class PortalTests(TestCase):
 
 class IntegracaoCadastrosTests(TestCase):
     def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.client.force_login(get_user_model().objects.create_superuser(username='test-access', password='test-pass'))
         self.polo = Polo.objects.create(nome='Polo Integracao', parceiro='Parceiro cadastrado',
                                         horario_funcionamento='08h a 17h', foto='polos/foto-teste.jpg')
         self.outro = Polo.objects.create(nome='Outro polo', ativo=False)
@@ -236,9 +269,9 @@ class IntegracaoCadastrosTests(TestCase):
         self.assertEqual(metas[self.outro_indicador.pk]['anual'], Decimal('5'))
         self.assertContains(response, 'Indicador A')
         self.assertContains(response, 'Indicador B')
-        self.assertContains(response, 'Previsto anual')
-        self.assertContains(response, '100,25')
-        self.assertContains(response, '300,75')
+        self.assertNotContains(response, 'Previsto anual')
+        self.assertContains(response, '<dd>100</dd>', html=True)
+        self.assertNotContains(response, '300,75')
 
     def test_filtro_mes_e_ano_altera_metas(self):
         response = self.home(month='2026-02')
@@ -255,7 +288,7 @@ class IntegracaoCadastrosTests(TestCase):
         metas = {item['indicador'].pk: item for item in response.context['metas']}
         self.assertEqual(metas[self.indicador.pk]['mensal'], Decimal('0'))
         self.assertIsNone(metas[self.outro_indicador.pk]['mensal'])
-        self.assertContains(response, '0,00')
+        self.assertContains(response, '<dd>0</dd>', html=True)
 
     def test_realizados_sem_registros_sao_zero(self):
         response = self.home()
@@ -270,7 +303,7 @@ class IntegracaoCadastrosTests(TestCase):
         self.assertEqual(row['completed'], 2)
         self.assertEqual(row['livros'], 6)
         self.assertEqual(row['metas'][0]['anual'], Decimal('300.75'))
-        self.assertContains(response, 'Previsto mensal')
+        self.assertContains(response, 'Previsto')
 
     def test_consultas_nao_crescem_com_numero_de_polos(self):
         from django.db import connection
@@ -287,7 +320,7 @@ class IntegracaoCadastrosTests(TestCase):
             response = self.client.get('/registros/?month=2026-01')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(before), len(after))
-        self.assertLessEqual(len(after), 6)
+        self.assertLessEqual(len(after), 31)  # Twelve months, still independent of polo count.
 
     def test_interface_sem_indicadores_e_sem_metas(self):
         MetaMensal.objects.all().delete()
@@ -323,6 +356,8 @@ class IntegracaoCadastrosTests(TestCase):
 
 class CalculoIndicadoresTests(TestCase):
     def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.client.force_login(get_user_model().objects.create_superuser(username='test-access', password='test-pass'))
         from .services.indicadores import calcular_realizado, calcular_atingimento, resultados_por_polo
         self.calcular = calcular_realizado
         self.percentual = calcular_atingimento
@@ -440,8 +475,8 @@ class CalculoIndicadoresTests(TestCase):
             response = self.client.get(url, {'unit': self.polo.pk, 'month': '2026-10'})
             self.assertEqual(response.status_code, 200)
             self.assertContains(response, '150,00%')
-            self.assertContains(response, 'Realizado mensal')
-            self.assertContains(response, 'Realizado anual')
+            self.assertContains(response, 'Realizado')
+            self.assertNotContains(response, 'Realizado anual')
 
 
 from django.test import TransactionTestCase
@@ -468,10 +503,12 @@ class MigrationTipoCalculoTests(TransactionTestCase):
             self.assertIsNone(preservado.tipo_calculo)
             self.assertTrue(apps.get_model('portal', 'MetaMensal').objects.filter(pk=meta.pk, previsto=100).exists())
         finally:
-            MigrationExecutor(connection).migrate(atual)
+            MigrationExecutor(connection).migrate([('portal', '0006_perfilusuario')])
 
 class CadastroAtendimentoTests(TestCase):
     def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.client.force_login(get_user_model().objects.create_superuser(username='test-access', password='test-pass'))
         self.polo = Polo.objects.create(nome='Polo operacional')
         self.outro = Polo.objects.create(nome='Outro polo operacional')
         self.inativo = Polo.objects.create(nome='Polo inativo', ativo=False)
@@ -616,6 +653,14 @@ class CadastroAtendimentoHTTPTests(LiveServerTestCase):
         indicador = Indicador.objects.create(codigo='http-qtd', nome='Quantidade HTTP', tipo_calculo=Indicador.TipoCalculo.QUANTIDADE_ATENDIMENTOS)
         livros = Indicador.objects.create(codigo='http-livros', nome='Livros HTTP', tipo_calculo=Indicador.TipoCalculo.LIVROS_RETIRADOS)
         navegador = build_opener(HTTPCookieProcessor(CookieJar()))
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.create_superuser(username='http-admin', password='http-test-pass')
+        login_url = self.live_server_url + '/login/'
+        with navegador.open(login_url, timeout=10) as response:
+            login_html = response.read().decode('utf-8')
+        login_token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', login_html).group(1)
+        with navegador.open(login_url, data=urlencode({'username': 'http-admin', 'password': 'http-test-pass', 'csrfmiddlewaretoken': login_token}).encode(), timeout=10) as response:
+            self.assertEqual(response.status, 200)
         formulario = self.live_server_url + '/atendimentos/novo/'
         with navegador.open(formulario, timeout=10) as response:
             html = response.read().decode('utf-8')

@@ -1,0 +1,3 @@
+{% extends 'base.html' %}
+{% block title %}Excluir atendimento{% endblock %}
+{% block content %}<section class="surface form-panel"><h1>Excluir atendimento</h1><p>Confirma a exclusão de {{ atendimento }}?</p><form method="post">{% csrf_token %}<a class="btn btn-outline-secondary" href="{% url 'records' %}">Cancelar</a> <button class="btn btn-danger" type="submit">Excluir</button></form></section>{% endblock %}

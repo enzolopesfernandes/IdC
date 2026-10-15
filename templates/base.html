@@ -13,11 +13,12 @@
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="{% url 'home' %}" aria-label="SESI Indústria do Conhecimento — início"><img class="logo-sesi" src="{% static 'img/sesi.svg' %}" alt="SESI"><img class="logo-program" src="{% static 'img/industria-conhecimento.svg' %}" alt="Indústria do Conhecimento"></a>
-      <nav aria-label="Navegação principal">
+      {% if user.is_authenticated %}<nav aria-label="Navegação principal">
         <a href="{% url 'home' %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}>{% include 'icon.html' with name='home' %} Home</a>
         <a href="{% url 'records' %}" {% if request.resolver_match.url_name == 'records' %}aria-current="page"{% endif %}>{% include 'icon.html' with name='records' %} Registros</a>
         <a class="register-button" href="{% url 'register' %}{% if unit %}?unit={{ unit }}{% endif %}" {% if request.resolver_match.url_name == 'register' %}aria-current="page"{% endif %}>{% include 'icon.html' with name='register' %} Registrar atendimentos</a>
-      </nav>
+        <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn btn-outline-secondary" type="submit">Sair</button></form>
+      </nav>{% endif %}
     </div>
   </header>
   <main id="main" class="page-shell">

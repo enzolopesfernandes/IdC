@@ -1,4 +1,4 @@
-﻿from django.contrib import admin
+from django.contrib import admin
 from .models import (Polo, ResponsavelPolo, Atendimento, Evento, Indicador,
                      MetaMensal, AnexoAtendimento, AnexoEvento)
 
@@ -57,3 +57,23 @@ class AnexoAtendimentoAdmin(admin.ModelAdmin):
 class AnexoEventoAdmin(admin.ModelAdmin):
     list_display = ['nome_original', 'evento', 'tipo_mime', 'tamanho', 'enviado_em']
     search_fields = ['nome_original']
+
+
+from .models import PerfilUsuario
+
+
+@admin.register(PerfilUsuario)
+class PerfilUsuarioAdmin(admin.ModelAdmin):
+    list_display = ['user', 'tipo', 'polo']
+    list_filter = ['tipo', 'polo']
+    search_fields = ['user__username', 'polo__nome']
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    has_add_permission = has_view_permission
+    has_change_permission = has_view_permission
+    has_delete_permission = has_view_permission

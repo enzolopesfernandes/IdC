@@ -1,4 +1,4 @@
-﻿from datetime import date
+from datetime import date
 from decimal import Decimal
 
 from django.test import TestCase
@@ -8,6 +8,8 @@ from .models import Polo, Indicador, MetaMensal, Atendimento
 
 class RevisaoMetasTelasTests(TestCase):
     def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.client.force_login(get_user_model().objects.create_superuser(username='test-access', password='test-pass'))
         self.polo = Polo.objects.create(nome='A\u00e7ail\u00e2ndia')
         self.outro = Polo.objects.create(nome='Polo com outra meta')
         self.sem_meta = Polo.objects.create(nome='Polo sem meta')
@@ -23,7 +25,7 @@ class RevisaoMetasTelasTests(TestCase):
     def test_acailandia_abril_meta_1800_na_home_e_registros(self):
         home = self.home()
         self.assertEqual(home.context['metas'][0]['mensal'], Decimal('1800'))
-        self.assertContains(home, '1800,00')
+        self.assertContains(home, '<dd>1800</dd>', html=True)
         self.assertEqual(home.context['metas'][0]['realizado'], 0)
         self.assertEqual(home.context['metas'][0]['atingimento'], 0)
         registros = self.client.get('/registros/?month=2026-04')
@@ -39,7 +41,7 @@ class RevisaoMetasTelasTests(TestCase):
 
     def test_sem_meta_texto_explicito_sem_substituir_por_zero(self):
         response = self.home(self.sem_meta)
-        self.assertContains(response, 'Sem meta cadastrada', count=2)
+        self.assertContains(response, 'Sem meta cadastrada')
         meta = response.context['metas'][0]
         self.assertIsNone(meta['mensal'])
         self.assertIsNone(meta['anual'])
@@ -51,14 +53,14 @@ class RevisaoMetasTelasTests(TestCase):
         MetaMensal.objects.create(polo=self.sem_meta, indicador=self.indicador, competencia=date(2026, 4, 1), previsto=0)
         response = self.home(self.sem_meta)
         self.assertNotContains(response, 'Sem meta cadastrada')
-        self.assertContains(response, '0,00')
+        self.assertContains(response, '<dd>0</dd>', html=True)
         self.assertEqual(response.context['metas'][0]['mensal'], Decimal('0'))
         self.assertIsNone(response.context['metas'][0]['atingimento'])
 
     def test_mes_ausente_preserva_previsao_anual_existente(self):
         response = self.home(mes='2026-06')
-        self.assertContains(response, 'Sem meta cadastrada', count=1)
-        self.assertContains(response, '1900,00')
+        self.assertContains(response, 'Sem meta cadastrada')
+        self.assertNotContains(response, '1900,00')
         self.assertIsNone(response.context['metas'][0]['mensal'])
         self.assertEqual(response.context['metas'][0]['anual'], Decimal('1900'))
 

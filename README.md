@@ -2,7 +2,102 @@
 
 Projeto simples em Django Templates, HTML semântico, Bootstrap 5 e CSS próprio. Interface mobile-first, com JavaScript vanilla apenas para enviar a seleção de unidade automaticamente. As três imagens fornecidas orientam a identidade visual e a estrutura das páginas. A Home utiliza a foto cadastrada do polo, com a imagem fornecida como exemplo identificado quando não há foto; o cabeçalho utiliza os dois SVGs fornecidos e todas as telas compartilham o fundo SVG em static/img.
 
-## Executar no Windows
+## Autenticação e controle de acesso
+
+### Organização visual do painel e de Registros
+
+A Home mantém a identidade visual e coloca o filtro de Polo no topo, ao lado do
+título, somente para ADMIN. A primeira linha contém foto, informações da unidade
+e acompanhamento mensal em cards, um por indicador. A segunda contém um placeholder
+para futuro mapa e o calendário existente. Nenhum mapa, API ou biblioteca de mapas
+foi implementado. O header mantém navegação e Sair, sem identificação da conta.
+
+Os cards mostram competência, previsto, realizado e atingimento mensais. Totais de
+atendimentos ou livros só aparecem separadamente quando não há indicador configurado
+para essa métrica. Não são exibidos valores anuais. A barra limita a largura a 100%,
+enquanto o texto mantém percentuais superiores a 100%. Meta ausente aparece como
+travessão, com descrição acessível; zero cadastrado aparece como 0. Previsto e realizado
+são apresentados como inteiros na Home e em Registros (arredondamento visual, sem
+alteração dos valores armazenados); percentuais mantêm duas casas decimais. Atingimento
+indisponível permanece travessão, sem atribuição artificial de percentual.
+
+Registros aceita `?year=<ano>&polo=<id>` e preserva links antigos com `?month=AAAA-MM`.
+Cada Polo tem uma seção por indicador e exatamente 12 linhas, Janeiro a Dezembro,
+com Mês, Previsto, Realizado e Atingimento. Em telas pequenas as mesmas linhas se
+reorganizam em blocos, sem duplicar os dados no DOM. ADMIN pode filtrar polos;
+GERENTE continua limitado ao seu Polo no backend.
+
+A view monta os 12 meses reutilizando `resultados_por_polo` em lotes para os polos
+autorizados. A quantidade de consultas é fixa por página e não cresce por Polo ou
+indicador. Nenhuma fórmula, model, migration, autorização ou dado persistido mudou
+nesta reorganização. Atendimentos, notas, anexos e ações existentes ficam numa área
+recolhível abaixo das tabelas, referente à competência selecionada (mês atual quando
+se usa somente o filtro de ano). Os cálculos anuais continuam disponíveis no serviço
+e contexto para compatibilidade, sem apresentação nas telas.
+
+O layout foi inspecionado no Chrome em larguras de 390, 768 e 1440 pixels, sem
+overflow horizontal. Testes cobrem cards, ordem dos meses, meta ausente versus zero,
+atingimento superior a 100%, ausência de valores anuais na interface e permissões.
+
+Todas as páginas internas exigem login em `/login/`. A autenticação utiliza User,
+hashing de senhas, sessões e proteção CSRF nativos do Django. Não há cadastro público.
+O botão Sair envia POST para `/logout/`, encerra a sessão e retorna ao login.
+O parâmetro `next` é validado pelo LoginView do Django contra redirecionamento externo.
+
+`PerfilUsuario` (migration `0006_perfilusuario`) associa exatamente um perfil a cada
+User por `OneToOneField`, com tipo ADMIN ou GERENTE e timestamps. GERENTE exige
+um único Polo; ADMIN exige Polo vazio. ModelForms validam essas regras e uma
+constraint no banco também impede combinações inválidas. Usuários comuns sem
+perfil recebem 403. Nenhuma conta ou perfil é criado automaticamente.
+
+O superusuário tem acesso técnico ao Django Admin e é tratado como ADMIN funcional,
+mesmo sem perfil. O Django Admin fica reservado a superusuários; `is_staff` e
+permissões isoladas não permitem contornar as regras funcionais. ADMIN funcional
+não recebe acesso técnico ao Admin. Somente superusuários podem gerenciar perfis.
+
+Para criar contas internamente:
+
+1. Execute `.venv\Scripts\python.exe manage.py createsuperuser` caso ainda não tenha acesso técnico.
+2. Entre em `/admin/` e crie o User em Usuários, definindo a senha pelo formulário nativo.
+3. Em Perfis de usuários (`/admin/portal/perfilusuario/`), associe o User ao tipo ADMIN
+   sem Polo ou ao tipo GERENTE com o Polo obrigatório. Mantenha contas funcionais sem
+   flags de superusuário ou acesso à equipe. Usuários inativos não podem autenticar.
+
+`portal/access.py` centraliza a validação de perfil e a função `escopo`, utilizada
+por Home, Registros, edição e arquivos. Para novos relatórios, aplique `login_required`
+e `escopo(request.user, queryset)` antes de consultar dados; para Polo use campo `pk`,
+e para relações indiretas informe o caminho do polo. Não existem relatórios separados
+de Registros nesta etapa.
+
+ADMIN consulta todos os polos e filtra Registros por `?polo=<id>`. GERENTE abre
+automaticamente seu Polo, sem seletor, e parâmetros externos não ampliam o escopo.
+Eventos, metas, responsáveis e realizados acompanham o Polo autorizado. Na criação
+e edição, o campo Polo do gerente fica desabilitado e seu valor é determinado no
+servidor. Um `polo`/`polo_id` forjado é ignorado; eventos de outro polo são rejeitados.
+
+Registros contém links para `/atendimentos/<id>/editar/` e, para ADMIN, exclusão.
+Editar registro fora do escopo retorna 404, inclusive por POST. GERENTE recebe 403
+em GET/POST de exclusão; DELETE não é aceito (405). A exclusão por ADMIN exige
+confirmação e POST com CSRF. A edição preserva os anexos existentes e não oferece
+substituição de fotos nesta etapa. A exclusão mantém a política existente de não
+apagar arquivos físicos automaticamente.
+
+URLs `/media/` também exigem autenticação e conferem o Polo vinculado no banco,
+incluindo fotos de polos e anexos de eventos/atendimentos. Arquivos sem referência
+autorizada retornam 404. A configuração de desenvolvimento não publica mais media
+diretamente com `static()`. Em uma futura publicação, o servidor de mídia também
+deverá preservar essa autorização, sem expor a pasta como diretório público.
+
+Testes de regressão existentes foram mantidos com login de teste. Os testes de acesso
+incluem manipulação de URL, query string, POST, exclusão, acesso direto a mídia,
+CSRF, login/logout e ausência de perfil. Contas de teste existem somente no banco
+temporário. O teste HTTP existente agora realiza login real antes do cadastro.
+
+Próxima etapa recomendada: revisão visual e homologação dos perfis com os responsáveis,
+incluindo a definição da retenção de anexos. Não foram implementadas integrações externas,
+recuperação de senha por e-mail ou publicação.
+
+## Executar no Windows (ambiente local)
 
 Use Python 3.10 ou superior (ambiente validado: Python 3.14.8, Django 5.2.18 e SQLite 3.50.4). Execute no PowerShell, na pasta do projeto. Se `.venv` já existir, reutilize-a e pule sua criação:
 
@@ -151,7 +246,7 @@ Próxima etapa recomendada: cadastrar ou revisar manualmente os indicadores reai
 
 O formulário registra um atendimento por envio, com polo, data, livros retirados, evento opcional e observações. As telas existentes foram adaptadas para contar registros e somar livros retirados, sem persistir realizados mensais ou anuais. Metas ficam em `MetaMensal`; não se mistura previsto de indicadores diferentes nas telas.
 
-O formulário aceita até 10 fotos (JPG, PNG ou WebP) ou PDFs por atendimento, com até 10 MB por arquivo. Os arquivos ficam em media/ e seus links aparecem nos registros consolidados. A validação verifica extensão e assinatura inicial; não realiza análise completa do conteúdo. Faça backup do banco e da pasta media juntos.
+O formulário aceita até 2 fotos (JPG, PNG ou WebP) por atendimento, com até 2 MB (2 × 1024 × 1024 bytes) por foto. PDFs não são aceitos nos novos envios pelo formulário. Fotos continuam opcionais e anexos antigos são preservados. As inserções já possuem data para registro diário; mais de um atendimento na mesma data continua permitido. Os arquivos ficam em media/ e seus links aparecem nos registros consolidados. A validação verifica extensão e assinatura inicial; não realiza análise completa do conteúdo. Faça backup do banco e da pasta media juntos.
 
 ## Registrar um atendimento pelo frontend
 
@@ -165,11 +260,11 @@ Após um POST válido, a gravação ocorre em transação e a view redireciona p
 
 Home e Registros recalculam realizados pelo serviço de indicadores, sem atualizar metas ou armazenar totais: dois atendimentos com 5 e 8 livros resultam em 2 atendimentos e 13 livros. Nenhuma tabela ou migration adicional foi necessária para este fluxo.
 
-O upload opcional já existia antes desta etapa e tinha testes. Foi preservado para evitar regressão, sem ampliar a funcionalidade; não é obrigatório para salvar um atendimento. Autenticação externa e novas regras de comprovantes não foram acrescentadas.
+O upload é opcional. Os limites de duas fotos de 2 MB são validados no servidor pelo formulário de atendimento; o cadastro direto de anexos no Admin permanece separado deste fluxo. Autenticação externa não foi acrescentada.
 
 A suíte inclui um teste com servidor HTTP, cookies e token CSRF reais em banco de testes isolado, além dos testes de formulário, Admin, mensagens, refresh e recálculo. Não são criados cadastros de teste no `db.sqlite3` de desenvolvimento.
 
-Próxima etapa recomendada para o fluxo operacional: revisar a política de anexos e definir suas validações e retenção antes de ampliar os uploads. Essa etapa não foi executada.
+A política de retenção e exclusão física dos anexos permanece pendente de definição.
 
 Os polos são cadastros do banco, disponíveis pelo Admin. As telas tratam a ausência de cadastros e os totais são calculados a partir dos registros salvos. O estilo, as imagens e a organização visual do frontend foram preservados; rótulos e campos foram ajustados à nova modelagem.
 

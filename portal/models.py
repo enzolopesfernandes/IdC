@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.conf import settings
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -152,3 +153,29 @@ class AnexoAtendimento(AnexoBase):
 class AnexoEvento(AnexoBase):
     evento = models.ForeignKey(Evento, on_delete=models.CASCADE, related_name='anexos')
     arquivo = models.FileField(upload_to='eventos/%Y/%m/')
+
+
+class PerfilUsuario(RegistroTemporal):
+    class Tipo(models.TextChoices):
+        ADMIN = 'ADMIN', 'Admin'
+        GERENTE = 'GERENTE', 'Gerente'
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='perfil')
+    tipo = models.CharField(max_length=7, choices=Tipo.choices)
+    polo = models.ForeignKey(Polo, on_delete=models.PROTECT, null=True, blank=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(
+            condition=Q(tipo='ADMIN', polo__isnull=True) | Q(tipo='GERENTE', polo__isnull=False),
+            name='perfil_tipo_polo_valido',
+        )]
+
+    def clean(self):
+        super().clean()
+        if self.tipo == self.Tipo.GERENTE and not self.polo_id:
+            raise ValidationError({'polo': 'Gerente deve ter um polo.'})
+        if self.tipo == self.Tipo.ADMIN and self.polo_id:
+            raise ValidationError({'polo': 'Admin deve ficar sem polo.'})
+
+    def __str__(self):
+        return f'{self.user} - {self.get_tipo_display()}'

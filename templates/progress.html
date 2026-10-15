@@ -1,0 +1,5 @@
+{% load l10n %}
+<div class="achievement">
+{% if value is not None %}<span class="achievement-value">{{ value|floatformat:2 }}%</span><div class="achievement-track" role="progressbar" aria-label="Atingimento da meta" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{% if value > 100 %}100{% else %}{{ value|unlocalize }}{% endif %}" aria-valuetext="{{ value|floatformat:2 }}%"><span style="width:{% if value > 100 %}100{% else %}{{ value|unlocalize }}{% endif %}%"></span></div>
+{% else %}<span class="achievement-value" aria-label="Atingimento indisponível">—</span><div class="achievement-track unavailable" aria-hidden="true"></div>{% endif %}
+</div>
